@@ -40,6 +40,7 @@ const auto NUM_COLORS = sizeof(colors) / sizeof(colors[0]);
 void Yolo(cv::Mat frame, int NUM_CLASSES, int CONFIDENCE_THRESHOLD, int NMS_THRESHOLD, std::vector<cv::Mat> detections, std::vector<std::vector<int>>& indices, std::vector<std::vector<cv::Rect>>& boxes, std::vector<std::vector<float>>& scores)
 {
     //detect
+#if 0
     for (auto& output : detections)
     {
         const auto num_boxes = output.rows;
@@ -55,7 +56,7 @@ void Yolo(cv::Mat frame, int NUM_CLASSES, int CONFIDENCE_THRESHOLD, int NMS_THRE
             for (int c = 0; c < NUM_CLASSES; ++c)
             {
                 auto confidence = *output.ptr<float>(i, 5 + c);
-                if (confidence >= CONFIDENCE_THRESHOLD)
+                if (confidence > CONFIDENCE_THRESHOLD)
                 {
                     boxes[c].push_back(rect);
                     scores[c].push_back(confidence);
@@ -63,6 +64,34 @@ void Yolo(cv::Mat frame, int NUM_CLASSES, int CONFIDENCE_THRESHOLD, int NMS_THRE
             }
         }
     }
+#else   
+    for (size_t i = 0; i < detections.size(); ++i)
+    {
+        float* data = (float*)detections[i].data;
+        for (size_t j = 0; j < detections[i].rows; ++j, data += detections[i].cols)
+        {
+            cv::Mat score = detections[i].row(j).colRange(5, detections[i].cols);
+            cv::Point classIdPoint;
+            double confidence;
+
+            // Get the value and location of the maximum score
+            minMaxLoc(score, 0, &confidence, 0, &classIdPoint);
+            
+            if (confidence > CONFIDENCE_THRESHOLD)
+            {
+                auto x = (float)(data[0] * frame.cols);
+                auto y = (float)(data[1] * frame.rows);
+                auto width = (float)(data[2] * frame.cols);
+                auto height = (float)(data[1] * frame.rows);
+                cv::Rect rect(x - width / 2, y - height / 2, width, height);
+                int c = classIdPoint.x;
+                boxes[c].push_back(rect);
+                scores[c].push_back(confidence);
+            }
+
+        }
+    }
+#endif
 
     //non-maximum suppress
     for (int c = 0; c < NUM_CLASSES; ++c)
@@ -154,20 +183,32 @@ std::string getSuffix(const int& nDigits, const int& index)
 int main()
 {
     INIReader ini("config.ini");
-    int NUM_CLASSES = 0;
-    std::vector<std::string> class_names;
 
     /*PARAMS section*/
     float CONFIDENCE_THRESHOLD = ini.GetReal("PARAMS", "confidence_threshold", 0.5);
     float NMS_THRESHOLD = ini.GetReal("PARAMS", "non_maximum_suppresion_threshold", 0.4);
 
-    long ENTRY = ini.GetInteger("PARAMS", "entry", 0);
-    long FREQUENCY = ini.GetInteger("PARAMS", "frequency", 1);
+    /*MODEL section*/
+    cv::String classPath = ini.GetString("MODEL", "class", "classes.txt"); //"model.names";
+    cv::String cfgPath = ini.GetString("MODEL", "config", ""); //"model.cfg";
+    cv::String weightPath = ini.GetString("MODEL", "weight", ""); //"model.weights";
+    
+    /*INOUT section*/
+    cv::String inPath = ini.GetString("INOUT", "input", ""); //folder contains input videos
+    cv::String outPath = ini.GetString("INOUT", "output", ""); //folder contains extracting frames & their corresponding annotation files
+    cv::String cropPath = ini.GetString("INOUT", "crop", ""); //folder contains cropped images of detection result
+    cv::String logPath = ini.GetString("INOUT", "log", "logs.txt"); //log file
+    bool isStandard = ini.GetBoolean("INOUT", "standard", true); //if isStandard is true, each cropped image will have a standard size, elsewise its depends on the corresponding bounding box
+    int cropSize = ini.GetInteger("INOUT", "size", 608); //standard size of each cropped image (for standard mode)
+    long ENTRY = ini.GetInteger("PARAMS", "entry", 0); //the first index for the first extract image
+    long FREQUENCY = ini.GetInteger("PARAMS", "frequency", 1); //the frequency to save the extract image
+    bool isSplit = ini.GetBoolean("INOUT", "split", true); //if isSplit is true, for each video, one subfolder will be created inside outPath to contain images extracted from this video; elsewise every image will be saved in outPath
     
     std::cout << CONFIDENCE_THRESHOLD << " " << NMS_THRESHOLD << "\n";
 
-    /*MODEL section*/
-    cv::String classPath = ini.GetString("MODEL", "class", "classes.txt"); //"model.names";
+    int NUM_CLASSES = 0;
+    std::vector<std::string> class_names;
+
     std::ifstream class_file(classPath);
     if (!class_file)
     {
@@ -182,29 +223,20 @@ int main()
         ++NUM_CLASSES;
     }
 
-    cv::String cfgPath = ini.GetString("MODEL", "config", ""); //"model.cfg";
-    cv::String weightPath = ini.GetString("MODEL", "weight", ""); //"model.weights";
     auto net = cv::dnn::readNetFromDarknet(cfgPath, weightPath);
-    
+
+#if 1
     /*GPU mode*/
     net.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
     net.setPreferableTarget(cv::dnn::DNN_TARGET_CUDA);
-    
+#else
     /*CPU mode*/
-    //net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
-    //net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
-    
+    net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
+    net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
+#endif
+
     auto output_names = net.getUnconnectedOutLayersNames();
 
-
-    /*INOUT section*/
-    cv::String inPath = ini.GetString("INOUT", "input", "");
-    cv::String outPath = ini.GetString("INOUT", "output", "");
-    cv::String cropPath = ini.GetString("INOUT", "crop", "");
-    cv::String logPath = ini.GetString("INOUT", "log", "logs.txt");
-    cv::String prefix = ini.GetString("INOUT", "prefix", "");// +"_";
-    int cropSize = ini.GetInteger("INOUT", "size", 608);
-    bool isStandard = ini.GetBoolean("INOUT", "standard", true);
     std::ofstream log_file(logPath);
 
     cv::Mat frame, blob;
@@ -237,6 +269,8 @@ int main()
 
     cv::String basename; //image file name
 
+    cv::String basename2;
+
     //basename = outPath + "/" + basename.substr(0, basename.find_last_of(".")) + "_";
 
     cv::String outputPath;
@@ -252,7 +286,7 @@ int main()
 
     int obIdx; //for iterating object in each frame
 
-    bool isDetected; //check if container code is detected
+    //bool isDetected; //check if container code is detected
     
     for (size_t i = 0; i < nVideos; ++i)
     {
@@ -266,18 +300,24 @@ int main()
 
         std::cout << "Analyzing video " << videonames[i] << std::endl;
 
-        basename = videonames[i].substr(videonames[i].find_last_of("\\") + 1); //image file name
+        basename = videonames[i].substr(videonames[i].find_last_of("\\") + 1); //video basename
 
-        if(prefix != "")
-            basename = prefix + "_" + basename.substr(0, basename.find_last_of("."));
-        else
-            basename = basename.substr(0, basename.find_last_of("."));
-        //subdirname = outPath + "/" + basename;
+        //if(prefix != "")
+        //    basename = prefix + "_" + basename.substr(0, basename.find_last_of("."));
+        //else
+       basename = basename.substr(0, basename.find_last_of("."));
 
-        //if (cv::utils::fs::exists(subdirname) == false)
-        //    cv::utils::fs::createDirectory(subdirname);
+       basename2 = basename;
 
-        //basename = subdirname + "/" + basename.substr(0, basename.find_last_of(".")) + "_";
+       if (isSplit == true)
+       {
+           subdirname = outPath + "/" + basename;
+
+            if (cv::utils::fs::exists(subdirname) == false)
+                cv::utils::fs::createDirectory(subdirname);
+
+            basename = basename + "/" + basename;
+       }
 
         k = 0;
 
@@ -299,7 +339,7 @@ int main()
             dRows = 1. / frame.rows;
             dCols = 1. / frame.cols;
 
-            outputPath = outPath + "/" + basename + "-" + getSuffix(numDigits, k + ENTRY);
+            outputPath = outPath + "/" + basename + "_" + getSuffix(numDigits, k + ENTRY);
 
             //std::string getSuffix(const int& nDigits, const int& index)
             annFilePath = outputPath + ".txt";
@@ -346,7 +386,7 @@ int main()
 
             obIdx = 0;
 
-            isDetected = false;
+            //isDetected = false;
 
             //label classes
             for (int c = 0; c < NUM_CLASSES; ++c)
@@ -354,7 +394,15 @@ int main()
                 cv::String fold = cropPath + class_names[c];
                 if (cv::utils::fs::exists(fold) == false)
                     cv::utils::fs::createDirectory(fold);
+                
+                if (isSplit == true)
+                {
+                    if (cv::utils::fs::exists(fold + "/" + basename2) == false)
+                        cv::utils::fs::createDirectory(fold + "/" + basename2);
+                }
+
                 fold += "/";
+
                 for (size_t j = 0; j < indices[c].size(); ++j)
                 {
                     const auto color = colors[c % NUM_COLORS];
@@ -391,16 +439,16 @@ int main()
                         
                         cv::Mat cropRoi = frame(cols, rows);
                         
-                        cv::String name = fold + basename + "-" + getSuffix(numDigits, k) + "_" + std::to_string(obIdx) + ".png";
+                        cv::String name = fold + basename + "_" + getSuffix(numDigits, k + ENTRY) + "_" + std::to_string(obIdx) + ".png";
                         
                         /*Only crop container code img*/
                         //if (c == 0 || c == 1)
                         //{
-                            if (!isDetected)
-                                isDetected = true;
+                            //if (!isDetected)
+                            //    isDetected = true;
                             //cv::imwrite(name, cropRoi);
                         //}
-
+                        cv::imwrite(name, cropRoi);
                     }
                     catch (const std::exception &ex)
                     {
