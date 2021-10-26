@@ -37,7 +37,7 @@ const auto NUM_COLORS = sizeof(colors) / sizeof(colors[0]);
 //    int ymax;
 //};
 
-void Yolo(cv::Mat frame, int NUM_CLASSES, int CONFIDENCE_THRESHOLD, int NMS_THRESHOLD, std::vector<cv::Mat> detections, std::vector<std::vector<int>>& indices, std::vector<std::vector<cv::Rect>>& boxes, std::vector<std::vector<float>>& scores)
+void postprocess(cv::Mat frame, int NUM_CLASSES, int CONFIDENCE_THRESHOLD, int NMS_THRESHOLD, std::vector<cv::Mat> detections, std::vector<std::vector<int>>& indices, std::vector<std::vector<cv::Rect>>& boxes, std::vector<std::vector<float>>& scores)
 {
     //detect
 #if 0
@@ -326,8 +326,11 @@ int main()
             source >> frame;
 
             if (k % FREQUENCY != 0)
+			{
+				++k;
                 continue;
-
+			}
+			
             cv::Size s = frame.size();
 
             if (frame.empty())
@@ -382,7 +385,7 @@ int main()
             std::vector<std::vector<cv::Rect>> boxes(NUM_CLASSES); //bounding boxes
             std::vector<std::vector<float>> scores(NUM_CLASSES); //confidence scores
 
-            Yolo(frame, NUM_CLASSES, CONFIDENCE_THRESHOLD, NMS_THRESHOLD, detections, indices, boxes, scores);
+            postprocess(frame, NUM_CLASSES, CONFIDENCE_THRESHOLD, NMS_THRESHOLD, detections, indices, boxes, scores);
 
             obIdx = 0;
 
