@@ -237,6 +237,10 @@ int main()
 
     auto output_names = net.getUnconnectedOutLayersNames();
 
+    INIReader config(cfgPath);
+    int _width = config.GetInteger("net", "width", 608);
+    int _height = config.GetInteger("net", "height", 608);
+
     std::ofstream log_file(logPath);
 
     cv::Mat frame, blob;
@@ -366,7 +370,7 @@ int main()
                 break;
             }
 
-            cv::dnn::blobFromImage(frame, blob, 0.00392, cv::Size(608, 608), cv::Scalar(), true, false, CV_32F);
+            cv::dnn::blobFromImage(frame, blob, 1 / 255.0, cv::Size(_width, _height), cv::Scalar(), true, false, CV_32F); //(1/255 to scale the pixel values to [0..1])
             net.setInput(blob);
 
             auto dnn_start = std::chrono::steady_clock::now();
