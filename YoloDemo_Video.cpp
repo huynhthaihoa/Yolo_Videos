@@ -201,7 +201,7 @@ int main()
     bool isStandard = ini.GetBoolean("INOUT", "standard", true); //if isStandard is true, each cropped image will have a standard size, elsewise its depends on the corresponding bounding box
     int cropSize = ini.GetInteger("INOUT", "size", 608); //standard size of each cropped image (for standard mode)
     long ENTRY = ini.GetInteger("PARAMS", "entry", 0); //the first index for the first extract image
-    long FREQUENCY = ini.GetInteger("PARAMS", "frequency", 1); //the frequency to save the extract image
+    long STEP = ini.GetInteger("PARAMS", "step", 1); //the frequency to save the extract image
     bool isSplit = ini.GetBoolean("INOUT", "split", true); //if isSplit is true, for each video, one subfolder will be created inside outPath to contain images extracted from this video; elsewise every image will be saved in outPath
     
     std::cout << CONFIDENCE_THRESHOLD << " " << NMS_THRESHOLD << "\n";
@@ -329,7 +329,7 @@ int main()
         {
             source >> frame;
 
-            if (k % FREQUENCY != 0)
+            if (k % STEP != 0)
 			{
 				++k;
                 continue;
