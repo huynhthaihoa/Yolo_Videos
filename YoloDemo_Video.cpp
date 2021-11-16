@@ -82,7 +82,7 @@ void postprocess(cv::Mat frame, int NUM_CLASSES, int CONFIDENCE_THRESHOLD, int N
                 auto x = (float)(data[0] * frame.cols);
                 auto y = (float)(data[1] * frame.rows);
                 auto width = (float)(data[2] * frame.cols);
-                auto height = (float)(data[1] * frame.rows);
+                auto height = (float)(data[3] * frame.rows);
                 cv::Rect rect(x - width / 2, y - height / 2, width, height);
                 int c = classIdPoint.x;
                 boxes[c].push_back(rect);
